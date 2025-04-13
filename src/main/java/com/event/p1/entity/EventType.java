@@ -1,18 +1,28 @@
 package com.event.p1.entity;
 
-import jakarta.persistence.Entity;
+import java.util.List;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "event_types")
+public class EventType {
 
-
-public class eventTypes {
-
+	@Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private double price;
+    @OneToMany(mappedBy = "eventType", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Event> events;
+    
     public Long getId() {
 		return id;
 	}
@@ -31,10 +41,6 @@ public class eventTypes {
 	public void setPrice(double price) {
 		this.price = price;
 	}
-	@Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    private String name;
-    private double price;
+	
 
 }

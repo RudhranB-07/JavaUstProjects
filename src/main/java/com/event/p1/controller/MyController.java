@@ -20,26 +20,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 
 @RestController
-@RequestMapping("/api/v2")
+@RequestMapping("/data")
 public class MyController {
 	
 	@Autowired
 	private MyService myService;
-
-	@GetMapping
-	public String home() {
-		return "Welcome home";
-	}
+	
 	@GetMapping("/all")
+	@PreAuthorize("hasAnyAuthority('admin')")
 	public List<MyUser> getAll(){
 		return myService.getAll();
-	}
-	
-	
-	@GetMapping("/contact")
-	@PreAuthorize("hasAnyAuthority('admin','user')")
-	public String contact() {
-		return "Contact us at .....";
 	}
 	
 	

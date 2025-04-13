@@ -56,12 +56,12 @@ public class MySecurityConfiguratioin {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 	    return http.csrf(csrf -> csrf.disable())
-	        .authorizeHttpRequests(auth -> auth.requestMatchers("/api/v1/**").permitAll())
-	        .authorizeHttpRequests(auth -> auth.requestMatchers("/api/v2/**").authenticated())
-	        .authorizeHttpRequests(auth -> auth.requestMatchers("/api/v3/**").authenticated())
-	        .httpBasic(Customizer.withDefaults())  // Enables Basic Auth
-	        .authenticationProvider(authenticationProvider())
-	        .build();
+	    		.authorizeHttpRequests(auth -> auth
+	    		.requestMatchers("/user/**").permitAll()
+	    		.requestMatchers("/data/**","/api/v3/**","/Event/**","/eventtypes/**","/food/**","/locations/**","/music/**","/payment/**").authenticated())
+		        .httpBasic(Customizer.withDefaults())  
+		        .authenticationProvider(authenticationProvider())
+		        .build();
 	}
 
 	
