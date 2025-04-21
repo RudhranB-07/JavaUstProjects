@@ -1,3 +1,0 @@
-FOR OTP:
-
-generate random() numbers - send to mail using java mail- note time using Date() - enter the code received in mail - get the code after entering with current Date() - compare date1 and date2 - compare the diff with limit(eg. 30s), for time limit for OTPs.
