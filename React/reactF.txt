@@ -1,0 +1,309 @@
+// client/src/Main/Transaction/AddTransaction.jsx
+import React, { useEffect, useState } from "react";
+import styles from "./Transaction.module.css";
+import { useSearchParams } from "react-router-dom";
+import {
+  getAllTranactions,
+  getOutstandingBalance,
+  performTransaction,
+} from "./Transactions";
+import TransactionHistory from "./TransactionHistory";
+import Logout from "../User/Logout";
+
+function AddTransaction() {
+  const [userId, setUserId] = useState();
+  const [transactionAmount, setTransactionAmount] = useState("");
+  const [transactionType, setTransactionType] = useState("CREDIT");
+  const [searchParams] = useSearchParams();
+  const [balance, setBalance] = useState();
+  const [transactions, setTransactions] = useState([]);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const id = searchParams.get("userId");
+    setUserId(id);
+    fetchData(id);
+  }, [searchParams]);
+
+  // You should use this function to fetch getOutstandingBalance and getAllTranactions
+  // Make sure to update state variables
+  const fetchData = async (userId) => {
+    try {
+      const bal = await getOutstandingBalance(userId);
+      setBalance(bal);
+      const txs = await getAllTranactions(userId);
+      setTransactions(txs);
+    } catch (err) {
+      setError("Failed to load data");
+    }
+  };
+
+  // Handle transaction submission
+  // Display a success meessage, when a transaction is submitted
+  // Display error if transaction submission gets failed
+  // Update state variables to reflect the changes
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitted(true);
+    setError("");
+    setMessage("");
+    if (!transactionAmount) {
+      setError("Amount is required");
+      return;
+    }
+    try {
+      await performTransaction({ userId, transactionAmount: Number(transactionAmount), transactionType });
+      setMessage("Transaction successful");
+      setTransactionAmount("");
+      fetchData(userId);
+    } catch (err) {
+      setError(err.message || "Transaction failed");
+    }
+  };
+
+  return (
+    <>
+      <Logout />
+      <h2>Make a Transaction</h2>
+      <form className={styles.transactionForm} onSubmit={handleSubmit}>
+        <div className={styles.formGroup}>
+          <label>{userId}</label>
+          <label data-testd="balance">Outstanding Balance : {balance}</label>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Amount:</label>
+          <input
+            type="number"
+            value={transactionAmount}
+            onChange={(e) => setTransactionAmount(e.target.value)}
+          />
+          {submitted && !transactionAmount && (
+            <p className={styles.error}>Amount is required</p>
+          )}
+        </div>
+
+        <div className={styles.formGroup}>
+          <label>Type:</label>
+          <select
+            id="type"
+            value={transactionType}
+            onChange={(e) => setTransactionType(e.target.value)}
+          >
+            <option value="CREDIT">Credit</option>
+            <option value="DEBIT">Debit</option>
+          </select>
+        </div>
+        <button type="submit" className={styles.btnSubmit}>
+          Submit
+        </button>
+        {error && <div className={styles.error}>{error}</div>}
+        {message && <div className={styles.success}>{message}</div>}
+      </form>
+
+      <TransactionHistory transactions={transactions} />
+    </>
+  );
+}
+
+export default AddTransaction;
+
+
+// client/src/Main/Transaction/TransactionHistory.jsx
+import React from "react";
+import styles from "./Transaction.module.css";
+
+// Use this component to populate transaction data
+function TransactionHistory({ transactions = [] }) {
+  return (
+    <table className={styles.transactionHistory}>
+      <thead>
+        <tr>
+          <th>Transaction Amount</th>
+          <th>Transaction Type</th>
+        </tr>
+      </thead>
+      <tbody>
+        {transactions.length > 0 ? (
+          transactions.map((tx, idx) => (
+            <tr key={idx}>
+              <td>{tx.transactionAmount}</td>
+              <td>{tx.transactionType}</td>
+            </tr>
+          ))
+        ) : (
+          // Display below error message if no transaction records are found
+          <tr>
+            <td colSpan={2} key="no-records">
+              No transactions found.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+export default TransactionHistory;
+
+
+// client/src/Main/Transaction/Transactions.js
+import { httpClient } from "../BaseApi";
+
+// We use axios to make http calls
+// Axios is already setup for you and imported in this file. httpClient
+
+// POST request to /transaction
+export const performTransaction = async (transaction) => {
+  const response = await httpClient.post("/transaction", transaction);
+  return response.data;
+};
+
+// GET request to /out-standing./ You need to pass userId as a query parameter
+export const getOutstandingBalance = async (userId) => {
+  const response = await httpClient.get(`/out-standing?userId=${userId}`);
+  return response.data;
+};
+
+// GET request to /all-transactions.You need to pass userId as a query parameter
+export const getAllTranactions = async (userId) => {
+  const response = await httpClient.get(`/all-transactions?userId=${userId}`);
+  return response.data;
+};
+
+
+// client/src/Main/User/AddUser.jsx
+import React, { useState } from "react";
+import styles from "./AddUser.module.css";
+import { Link } from "react-router-dom";
+import Logout from "./Logout";
+import { createUser } from "./Auth";
+
+function AddUser() {
+  const [userId, setUserId] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("CLIENT");
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  // When a user is added make sure userId, password and role is not empty
+  // If above fields are filled call createUser in Auth.js to create a new user
+  // Handle errors if the user creation gets failed
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitted(true);
+    setError("");
+    setMessage("");
+    if (!userId || !password || !role) {
+      setError("All fields are required");
+      return;
+    }
+    try {
+      await createUser({ userId, password, role });
+      setMessage("User created successfully");
+      setUserId("");
+      setPassword("");
+      setRole("CLIENT");
+    } catch (err) {
+      setError(err.message || "Failed to create user");
+    }
+  };
+  return (
+    <>
+      <Logout />
+      <form className={styles.userForm} onSubmit={handleSubmit}>
+        <div className={styles.formGroup}>
+          <label>UserId:</label>
+          <input
+            data-testid="userId"
+            type="text"
+            id="userId"
+            className={styles.formControl}
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+          />
+          {/* Error message should be shown when the form is submitted and if UserId is empty */}
+          {submitted && !userId && <p className={styles.error}>UserId is required</p>}
+        </div>
+        <div className={styles.formGroup}>
+          <label>Password:</label>
+          <input
+            data-testid="password"
+            type="password"
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {/* Error message should be shown when the form is submitted and if Password is empty */}
+          {submitted && !password && <p className={styles.error}>Password is required</p>}
+        </div>
+        <div className={styles.formGroup}>
+          <label>Role:</label>
+          <select
+            data-testid="role"
+            className={styles.formControl}
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            <option value="CLIENT">Client</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+          {/* Error message should be shown when the form is submitted and if Role is empty */}
+          {submitted && !role && <p className={styles.error}>Role is required</p>}
+        </div>
+
+        <button type="submit" className={styles.btnSubmit}>
+          Create User
+        </button>
+
+        {/* Display this error if user creation  is not successful */}
+        {error && <div className={styles.error}>{error}</div>}
+
+        {/* Display this message if user creation  is  successful */}
+        {message && <div className={styles.success}>{message}</div>}
+
+        <Link to={"/users"} className={styles.userList}>
+          Go to User List
+        </Link>
+      </form>
+    </>
+  );
+}
+
+export default AddUser;
+
+
+// client/src/Main/User/Auth.js
+import { httpClient } from '../BaseApi';
+
+// We use axios to make http calls
+// Axios is already setup for you and imported in this file. httpClient
+
+// POST request to /authenticate
+export const login = async (user) => {
+  const response = await httpClient.post('/authenticate', user);
+  return response.data;
+};
+
+export const getToken  = () =>  {
+    return localStorage.getItem("token");
+}
+
+
+export const setToken  = (token) =>  {
+    return localStorage.setItem('token', token);
+}
+
+// GET request to /fetchusers
+export const getUsers  = async () =>  {
+   const response = await httpClient.get('/fetchusers');
+   return response.data;
+}
+
+// POST request to /user
+export const createUser = async (user) => {
+   const response = await httpClient.post('/user', user);
+   return response.data;
+}

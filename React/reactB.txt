@@ -1,0 +1,268 @@
+// JwtAuthenticationController.java
+package com.wecp.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.wecp.config.JwtTokenUtil;
+import com.wecp.model.JwtRequest;
+import com.wecp.model.JwtResponse;
+
+@RestController
+@CrossOrigin
+public class JwtAuthenticationController {
+
+    @Autowired
+    private UserDetailsService jwtUserDetailsService;
+
+    @Autowired
+    private JwtTokenUtil jwtTokenUtil;
+
+    @RequestMapping(value = "/authenticate", method = RequestMethod.POST)
+    public ResponseEntity<?> createAuthenticationToken(@RequestBody JwtRequest authRequest) {
+        // Load user details
+        UserDetails userDetails;
+        try {
+            userDetails = jwtUserDetailsService.loadUserByUsername(authRequest.getUsername());
+        } catch (Exception ex) {
+            return ResponseEntity.status(422).body("User not found");
+        }
+        // Directly compare raw password hashcode (exam requirement)
+        String rawHash = String.valueOf(authRequest.getPassword().hashCode());
+        if (!rawHash.equals(userDetails.getPassword())) {
+            return ResponseEntity.status(401).body("Invalid credentials");
+        }
+        // Generate token
+        String token = jwtTokenUtil.generateToken(userDetails);
+        return ResponseEntity.ok(new JwtResponse(token));
+    }
+}
+
+
+// UserController.java
+package com.wecp.controller;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.wecp.entities.User;
+import com.wecp.repos.UserRepository;
+
+@RestController
+public class UserController {
+
+    @Autowired
+    private UserRepository repository;
+
+    @RequestMapping(value = "/user", method = RequestMethod.POST)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> saveOrUpdateUser(@RequestBody User user) {
+        User existing = repository.findByUserId(user.getUserId());
+        if (existing == null) {
+            existing = new User();
+            existing.setUserId(user.getUserId());
+            existing.setPassword(user.getPassword());
+            existing.setRole(user.getRole());
+            existing.setOustanding(0d);
+        } else {
+            existing.setPassword(user.getPassword());
+            existing.setRole(user.getRole());
+        }
+        repository.save(existing);
+        Map<String, String> response = new HashMap<>();
+        response.put("success", "User saved successfully");
+        return ResponseEntity.ok(response);
+    }
+
+    @RequestMapping(value = "/fetchusers", method = RequestMethod.GET)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = repository.findAll();
+        return ResponseEntity.ok(users);
+    }
+
+    @RequestMapping(value = "/out-standing", method = RequestMethod.GET)
+    @PreAuthorize("hasRole('CLIENT')")
+    public ResponseEntity<Double> getOutstanding(@RequestParam String userId) {
+        User user = repository.findByUserId(userId);
+        if (user != null) {
+            return ResponseEntity.ok(user.getOustanding());
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+}
+
+
+// UserTransactionController.java
+package com.wecp.controller;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.wecp.entities.User;
+import com.wecp.entities.UserTransaction;
+import com.wecp.repos.UserRepository;
+import com.wecp.repos.UserTransactionRepository;
+
+@RestController
+public class UserTransactionController {
+
+    @Autowired
+    private UserTransactionRepository transactionRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @RequestMapping(value = "/transaction", method = RequestMethod.POST)
+    @PreAuthorize("hasRole('CLIENT')")
+    @Transactional
+    public ResponseEntity<?> transact(@RequestBody UserTransaction txRequest) {
+        User user = userRepository.findByUserId(txRequest.getUserId());
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "User not found");
+        }
+
+        Double current = user.getOustanding();
+        Double amount = txRequest.getTransactionAmount();
+        String type = txRequest.getTransactionType();
+        UserTransaction tx = new UserTransaction();
+        tx.setUser(user);
+        tx.setTransactionType(type);
+
+        if ("CREDIT".equalsIgnoreCase(type)) {
+            Double newBal = current + amount;
+            user.setOustanding(newBal);
+            tx.setBalance(newBal);
+        } else if ("DEBIT".equalsIgnoreCase(type)) {
+            if (current < amount) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "NOT_ENOUGH_BALANCE");
+            }
+            Double newBal = current - amount;
+            user.setOustanding(newBal);
+            tx.setBalance(newBal);
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid transaction type");
+        }
+
+        tx.setTransactionAmount(amount);
+        transactionRepository.save(tx);
+        userRepository.save(user);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("success", "Transaction performed successfully");
+        return ResponseEntity.ok(response);
+    }
+
+    @RequestMapping(value = "/all-transactions", method = RequestMethod.GET)
+    @PreAuthorize("hasRole('CLIENT')")
+    public ResponseEntity<?> getUserTransactions(@RequestParam String userId) {
+        User user = userRepository.findByUserId(userId);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
+        }
+        List<UserTransaction> transactions = transactionRepository.findByUserId(user.getId());
+        return ResponseEntity.ok(transactions);
+    }
+}
+
+
+// User.java
+package com.wecp.entities;
+
+import java.util.Set;
+import javax.persistence.CascadeType;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.OneToMany;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+@Entity
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String userId;
+    private String password;
+    private String role;
+    private Double oustanding = 0d;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
+    private Set<UserTransaction> transactions;
+
+    // getters and setters omitted for brevity
+}
+
+
+// UserTransaction.java
+package com.wecp.entities;
+
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.Transient;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+@Entity
+public class UserTransaction {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Transient
+    private String userId;
+
+    private Double balance;
+    private Double transactionAmount;
+    private String transactionType = "CREDIT";
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "u_id", nullable = false)
+    @JsonIgnore
+    private User user;
+
+    // getters and setters omitted for brevity
+}
