@@ -1,0 +1,104 @@
+Step 2: Load the PDF and extract the text (tasks 1 and 2)
+python
+from pypdf import PdfReader
+
+reader = PdfReader("/content/intro-to-ml-book.pdf")
+print("Pages:", len(reader.pages))
+
+pages = []
+for i, p in enumerate(reader.pages):
+    pages.append({"page": i + 1, "text": p.extract_text() or ""})
+
+This opens the file and pulls the text out of each page, keeping the page number. You should see 392.
+
+Step 3: Explore the structure and text quality (task 3)
+python
+import statistics
+
+lengths = [len(p["text"]) for p in pages]
+print("Near-empty pages:", [p["page"] for p in pages if len(p["text"]) < 50])
+print("Average characters per page:", round(statistics.mean(lengths)))
+
+for n in [20, 100, 390]:
+    print(f"\n--- Page {n} ---")
+    print(pages[n - 1]["text"][:700])
+
+This counts blank pages, shows the average page size and prints sample pages so you can look at the text yourself.
+
+When I ran this on your file, I found:
+
+5 near-empty pages: 2, 144, 224, 318 and 336.
+About 1,765 characters per page on average.
+Code blocks with In[70]: and Out[70]: markers on about 268 pages.
+Figure captions at the top of many pages, such as “Figure 2-33...”.
+Words split across lines with a special hyphen character (for example “tutori‐ als”).
+
+Check your own output against this. If the numbers differ, tell me.
+
+Step 4: Clean the text
+python
+import re
+
+def clean(text):
+    text = re.sub(r"[-\u2010]\n(\w)", r"\1", text)   # rejoin words split at line ends
+    text = re.sub(r"[ \t]+", " ", text)              # collapse repeated spaces
+    text = re.sub(r"\n{3,}", "\n\n", text)           # collapse extra blank lines
+    return text.strip()
+
+cleaned_pages = []
+for p in pages:
+    t = clean(p["text"])
+    if len(t) >= 50:                                 # drop blank pages
+        cleaned_pages.append({"page": p["page"], "text": t})
+
+print("Pages kept:", len(cleaned_pages))
+
+The book uses a special hyphen (\u2010) at line ends, about 736 times, so the pattern includes it. A plain - alone would miss most of them. The small side effect is that a genuine hyphenated word broken at a line end, such as “state-of-the-art”, also gets joined. It’s minor, and you can mention it as a limitation.
+
+Leave the code blocks alone, since users will ask questions about them.
+
+Step 5: Split into chunks (task 4)
+python
+from bisect import bisect_right
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Join all pages into one text, remembering where each page starts
+full_text = ""
+page_starts = []
+page_numbers = []
+for p in cleaned_pages:
+    page_starts.append(len(full_text))
+    page_numbers.append(p["page"])
+    full_text += p["text"] + "\n\n"
+
+# About 4 characters per token: 3200 characters is roughly 800 tokens, 400 is roughly 100
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=3200, chunk_overlap=400, add_start_index=True
+)
+docs = splitter.create_documents([full_text])
+
+# Attach the page where each chunk starts
+chunks = []
+for d in docs:
+    idx = bisect_right(page_starts, d.metadata["start_index"]) - 1
+    chunks.append({"text": d.page_content, "page": page_numbers[idx]})
+
+print("Total chunks:", len(chunks))
+print(chunks[0])
+
+Why it’s built this way:
+
+An average page is only about 1,765 characters, so splitting page by page would give roughly one chunk per page and the overlap would never be used. Joining the pages first lets chunks run across page breaks with real overlap.
+add_start_index records where each chunk begins, and the page lookup turns that position into a page number. You’ll show this page number as evidence in Part 4.
+
+I couldn’t run this cell here, so I can’t give you the chunk count. Tell me what you get.
+
+The splitter counts characters, not tokens, so state in your write-up that the sizes are an approximation of 800 tokens with 100 overlap. The assignment also says to experiment, so try a second setting such as chunk_size=1600, chunk_overlap=200 and compare how many chunks each gives.
+
+Step 6: Save your chunks
+python
+import json
+with open("/content/chunks.json", "w") as f:
+    json.dump(chunks, f)
+
+Download chunks.json from the Files panel, or copy it to Google Drive. If Colab resets, you reload this file instead of redoing Steps 2 to 5.
