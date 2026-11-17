@@ -1,104 +1,63 @@
-Step 2: Load the PDF and extract the text (tasks 1 and 2)
+Part 2, step by step
+Step 1: Install
 python
-from pypdf import PdfReader
+!pip install sentence-transformers chromadb
 
-reader = PdfReader("/content/intro-to-ml-book.pdf")
-print("Pages:", len(reader.pages))
+sentence-transformers turns text into vectors, and chromadb stores and searches them.
 
-pages = []
-for i, p in enumerate(reader.pages):
-    pages.append({"page": i + 1, "text": p.extract_text() or ""})
-
-This opens the file and pulls the text out of each page, keeping the page number. You should see 392.
-
-Step 3: Explore the structure and text quality (task 3)
-python
-import statistics
-
-lengths = [len(p["text"]) for p in pages]
-print("Near-empty pages:", [p["page"] for p in pages if len(p["text"]) < 50])
-print("Average characters per page:", round(statistics.mean(lengths)))
-
-for n in [20, 100, 390]:
-    print(f"\n--- Page {n} ---")
-    print(pages[n - 1]["text"][:700])
-
-This counts blank pages, shows the average page size and prints sample pages so you can look at the text yourself.
-
-When I ran this on your file, I found:
-
-5 near-empty pages: 2, 144, 224, 318 and 336.
-About 1,765 characters per page on average.
-Code blocks with In[70]: and Out[70]: markers on about 268 pages.
-Figure captions at the top of many pages, such as “Figure 2-33...”.
-Words split across lines with a special hyphen character (for example “tutori‐ als”).
-
-Check your own output against this. If the numbers differ, tell me.
-
-Step 4: Clean the text
-python
-import re
-
-def clean(text):
-    text = re.sub(r"[-\u2010]\n(\w)", r"\1", text)   # rejoin words split at line ends
-    text = re.sub(r"[ \t]+", " ", text)              # collapse repeated spaces
-    text = re.sub(r"\n{3,}", "\n\n", text)           # collapse extra blank lines
-    return text.strip()
-
-cleaned_pages = []
-for p in pages:
-    t = clean(p["text"])
-    if len(t) >= 50:                                 # drop blank pages
-        cleaned_pages.append({"page": p["page"], "text": t})
-
-print("Pages kept:", len(cleaned_pages))
-
-The book uses a special hyphen (\u2010) at line ends, about 736 times, so the pattern includes it. A plain - alone would miss most of them. The small side effect is that a genuine hyphenated word broken at a line end, such as “state-of-the-art”, also gets joined. It’s minor, and you can mention it as a limitation.
-
-Leave the code blocks alone, since users will ask questions about them.
-
-Step 5: Split into chunks (task 4)
-python
-from bisect import bisect_right
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# Join all pages into one text, remembering where each page starts
-full_text = ""
-page_starts = []
-page_numbers = []
-for p in cleaned_pages:
-    page_starts.append(len(full_text))
-    page_numbers.append(p["page"])
-    full_text += p["text"] + "\n\n"
-
-# About 4 characters per token: 3200 characters is roughly 800 tokens, 400 is roughly 100
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=2000, chunk_overlap=300, add_start_index=True
-)
-docs = splitter.create_documents([full_text])
-
-# Attach the page where each chunk starts
-chunks = []
-for d in docs:
-    idx = bisect_right(page_starts, d.metadata["start_index"]) - 1
-    chunks.append({"text": d.page_content, "page": page_numbers[idx]})
-
-print("Total chunks:", len(chunks))
-print(chunks[0])
-
-Why it’s built this way:
-
-An average page is only about 1,765 characters, so splitting page by page would give roughly one chunk per page and the overlap would never be used. Joining the pages first lets chunks run across page breaks with real overlap.
-add_start_index records where each chunk begins, and the page lookup turns that position into a page number. You’ll show this page number as evidence in Part 4.
-
-I couldn’t run this cell here, so I can’t give you the chunk count. Tell me what you get.
-
-The splitter counts characters, not tokens, so state in your write-up that the sizes are an approximation of 800 tokens with 100 overlap. The assignment also says to experiment, so try a second setting such as chunk_size=1600, chunk_overlap=200 and compare how many chunks each gives.
-
-Step 6: Save your chunks
+Step 2: Reload your chunks (only if Colab reset)
 python
 import json
-with open("/content/chunks.json", "w") as f:
-    json.dump(chunks, f)
+with open("/content/chunks.json") as f:
+    chunks = json.load(f)
+print(len(chunks))
+Step 3: Load the embedding model
+python
+from sentence_transformers import SentenceTransformer
 
-Download chunks.json from the Files panel, or copy it to Google Drive. If Colab resets, you reload this file instead of redoing Steps 2 to 5.
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+print("Max input tokens:", model.max_seq_length)
+print("Vector size:", model.get_sentence_embedding_dimension())
+
+An embedding model converts a piece of text into a list of numbers so that texts with similar meaning end up close together. This model is free and runs inside Colab. It should print a limit of 512 tokens and a vector size of 384. If it prints different numbers, use the printed ones in your write-up.
+
+A few chunks, especially ones with code, may be slightly over 512 tokens and get trimmed. That’s fine, and worth one line in your write-up.
+
+Step 4: Create the embeddings (task 1)
+python
+texts = [c["text"] for c in chunks]
+embeddings = model.encode(texts, batch_size=32, show_progress_bar=True,
+                          normalize_embeddings=True)
+print(embeddings.shape)
+
+This converts every chunk into a vector. The shape should be (number of chunks, 384). Normalising makes every vector the same length, so closeness is measured by direction (cosine similarity). It may take a minute or a few on CPU, and less with a GPU.
+
+Step 5: Store them in a vector database (task 2)
+python
+import chromadb
+
+client = chromadb.PersistentClient(path="/content/chroma_db")
+collection = client.get_or_create_collection(
+    name="ml_book", metadata={"hnsw:space": "cosine"}
+)
+
+collection.add(
+    ids=[str(i) for i in range(len(chunks))],
+    documents=texts,
+    embeddings=embeddings.tolist(),
+    metadatas=[{"page": c["page"]} for c in chunks],
+)
+print("Stored:", collection.count())
+
+For each chunk, the database stores its vector (for searching), its original text (to return) and its page number (for evidence later). The count should equal your chunk count. PersistentClient saves to disk, so download or copy the chroma_db folder if you want to keep it after Colab resets.
+
+Step 6: Similarity search (task 3)
+python
+def search(query, k=3):
+    q = model.encode([query], normalize_embeddings=True)
+    res = collection.query(query_embeddings=q.tolist(), n_results=k)
+    for text, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+        print(f"\nPage {meta['page']} | similarity {1 - dist:.2f}")
+        print(text[:400])
+
+search("What is overfitting?")
