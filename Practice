@@ -73,7 +73,7 @@ for p in cleaned_pages:
 
 # About 4 characters per token: 3200 characters is roughly 800 tokens, 400 is roughly 100
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=3200, chunk_overlap=400, add_start_index=True
+    chunk_size=2000, chunk_overlap=300, add_start_index=True
 )
 docs = splitter.create_documents([full_text])
 
