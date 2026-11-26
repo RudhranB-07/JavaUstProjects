@@ -1,60 +1,30 @@
-Cell 1: Install
+Cell 1: Full pipeline in one function
 python
-!pip install langchain-google-genai langchain-core
+def rag_answer(question, k=5):
+    docs = retrieve(question, k=k)                                  # retrieval system
+    context = "\n\n".join([doc["text"] for doc in docs])
+    return rag_chain.invoke({"context": context, "question": question})   # LLM generation
 
-If Colab shows a "Restart session" button, click it, then run Cell 2. If it doesn't, skip Cell 2.
+The document processing (PDF to chunks to embeddings in ChromaDB) was done in Parts 1 and 2, so this function connects the retrieval and the LLM on top of it.
 
-Cell 2: Reload (only after a restart)
+Cell 2: Demonstrate multiple queries
 python
-import chromadb
-from sentence_transformers import SentenceTransformer
+demo_questions = [
+    "What is overfitting and how can we detect it?",
+    "How does the k-nearest neighbors algorithm make a prediction?",
+    "What is cross-validation?",
+]
 
-model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-client = chromadb.PersistentClient(path="/content/chroma_db")
-collection = client.get_collection("ml_book")
-print("Chunks in database:", collection.count())
-
-A restart also wipes your retrieve function, so re-run your Part 3 retrieve cell after this one.
-
-Cell 3: Set up the LLM
+for q in demo_questions:
+    print("Question:", q)
+    print(rag_answer(q))
+    print("-" * 80)
+Cell 3: Real-time question answering
 python
-import os, getpass
-os.environ["GEMINI_API_KEY"] = getpass.getpass("Enter your Gemini API key: ")
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
-
-Cell 4: Prompt and chain
-python
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
-rag_prompt = ChatPromptTemplate.from_template("""
-You are a Machine Learning tutor and your job is to answer the user's question
-based on the retrieved context only.
-
-If the answer is not available in the context then say - "I couldn't find this information"
-
-Retrieved Context: {context}
-Question: {question}
-
-Provide the following:
-1. Answer:
-2. Supporting evidence:
-""")
-
-rag_chain = rag_prompt | llm | StrOutputParser()
-Cell 5: Ask a question and generate the answer
-python
-question = "What is overfitting and how can we detect it?"
-
-retrieved_docs = retrieve(question, k=5)
-context = "\n\n".join([doc["text"] for doc in retrieved_docs])
-
-response = rag_chain.invoke({"context": context, "question": question})
-print(response)
-Cell 6: Evidence of grounding
-python
-for doc in retrieved_docs:
-    print("Page", doc["page"], ":", doc["text"][:300])
-    print()
+while True:
+    question = input("Your question (type 'exit' to stop): ")
+    if question.strip().lower() == "exit":
+        print("Goodbye!")
+        break
+    print(rag_answer(question))
+    print("-" * 80)
