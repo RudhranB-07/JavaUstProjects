@@ -1,17 +1,60 @@
-def retrieve(question, k=5):
-    q = model.encode([question], normalize_embeddings=True)            # query -> embedding
-    res = collection.query(query_embeddings=q.tolist(), n_results=k)   # top-k chunks
-    docs = []
-    for text, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
-        docs.append({"text": text, "page": meta["page"], "score": round(1 - dist, 3)})
-    return docs
+Cell 1: Install
+python
+!pip install langchain-google-genai langchain-core
 
-for d in retrieve("What is overfitting?", k=3):
-    print(f"PDF p.{d['page']} | score {d['score']} | {d['text'][:120]!r}")
-------------
-for q in ["What is overfitting?", "How does k-nearest neighbors make a prediction?"]:
-    print("\nQuery:", q)
-    for k in [3, 5, 7]:
-        docs = retrieve(q, k)
-        print(f"  k={k}: pages {[d['page'] for d in docs]}, lowest score {min(d['score'] for d in docs)}")
----------
+If Colab shows a "Restart session" button, click it, then run Cell 2. If it doesn't, skip Cell 2.
+
+Cell 2: Reload (only after a restart)
+python
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+client = chromadb.PersistentClient(path="/content/chroma_db")
+collection = client.get_collection("ml_book")
+print("Chunks in database:", collection.count())
+
+A restart also wipes your retrieve function, so re-run your Part 3 retrieve cell after this one.
+
+Cell 3: Set up the LLM
+python
+import os, getpass
+os.environ["GEMINI_API_KEY"] = getpass.getpass("Enter your Gemini API key: ")
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
+
+Cell 4: Prompt and chain
+python
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+rag_prompt = ChatPromptTemplate.from_template("""
+You are a Machine Learning tutor and your job is to answer the user's question
+based on the retrieved context only.
+
+If the answer is not available in the context then say - "I couldn't find this information"
+
+Retrieved Context: {context}
+Question: {question}
+
+Provide the following:
+1. Answer:
+2. Supporting evidence:
+""")
+
+rag_chain = rag_prompt | llm | StrOutputParser()
+Cell 5: Ask a question and generate the answer
+python
+question = "What is overfitting and how can we detect it?"
+
+retrieved_docs = retrieve(question, k=5)
+context = "\n\n".join([doc["text"] for doc in retrieved_docs])
+
+response = rag_chain.invoke({"context": context, "question": question})
+print(response)
+Cell 6: Evidence of grounding
+python
+for doc in retrieved_docs:
+    print("Page", doc["page"], ":", doc["text"][:300])
+    print()
